@@ -12,15 +12,18 @@ class GreedyAgent:
         self.q_values = np.zeros(n_actions)
         self.action_counts = np.zeros(n_actions)
 
-    def select_action(self):
-        return np.argmax(self.q_values)
+    def select_action(self, epsilon):
+        if np.random.rand() < epsilon:
+            return np.random.randint(self.n_actions)
+        else:
+            return np.argmax(self.q_values)
 
     def update_estimates(self, action, reward):
         self.action_counts[action] += 1
         n = self.action_counts[action]
         self.q_values[action] += (reward - self.q_values[action]) / n
 
-def train_greedy_agent(env_name='BanditTenArmedGaussian-v0', n_episodes=1000):
+def train_epsilon_greedy_agent(env_name='BanditTenArmedGaussian-v0', n_episodes=1000):
     env = gym.make(env_name)
     n_actions = env.action_space.n
     agent = GreedyAgent(n_actions)
@@ -33,9 +36,10 @@ def train_greedy_agent(env_name='BanditTenArmedGaussian-v0', n_episodes=1000):
     env.reset()
     np.random.seed(42)
 
+    epsilon = 0.1
+
     true_means = env.means if hasattr(env, 'means') else None
     if true_means is None:
-        # try alternative attribute names
         true_means = getattr(env, 'mu', None)
     if true_means is None:
         # if we can't get true means, we'll estimate optimal reward from observed rewards
@@ -46,7 +50,7 @@ def train_greedy_agent(env_name='BanditTenArmedGaussian-v0', n_episodes=1000):
     optimal_reward = np.max(true_means) if true_means is not None else None
 
     for episode in range(n_episodes):
-        action = agent.select_action()
+        action = agent.select_action(epsilon)
         reward = env.step(action)[1]
         agent.update_estimates(action, reward)
 
@@ -72,7 +76,7 @@ def train_greedy_agent(env_name='BanditTenArmedGaussian-v0', n_episodes=1000):
         plt.axhline(y=optimal_reward, color='r', linestyle='--', label='Optimal reward', linewidth=2)
     plt.xlabel('Episode')
     plt.ylabel('Reward')
-    plt.title('Greedy Agent Performance')
+    plt.title('Epsilon-Greedy Agent Performance')
     plt.legend()
     plt.grid(True)
 
@@ -95,13 +99,13 @@ def train_greedy_agent(env_name='BanditTenArmedGaussian-v0', n_episodes=1000):
     plt.grid(True)
 
     plt.tight_layout()
-    plt.savefig('greedy_agent_results.png')
+    plt.savefig('epsilon_greedy_agent_results.png')
     # plt.show()
 
     return agent, cumulative_regret[-1] if cumulative_regret else 0
 
 if __name__ == "__main__":
-    trained_agent, final_regret = train_greedy_agent(n_episodes=10000)
+    trained_agent, final_regret = train_epsilon_greedy_agent(n_episodes=10000)
     print(f"Final q_values: {trained_agent.q_values}")
     print(f"Action counts: {trained_agent.action_counts}")
     print(f"Final cumulative regret: {final_regret:.2f}")
