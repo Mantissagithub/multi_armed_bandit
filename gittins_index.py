@@ -48,10 +48,7 @@ class GittinsIndexAgent:
       if self.t <= self.n_actions:
         return self.t - 1
 
-      if np.random.rand() < self.epsilon:
-        return np.random.randint(self.n_actions)
-      else:
-        return np.argmax(self.gittins_index)
+      return np.argmax(self.gittins_index)
 
     def update_estimates(self, action, reward):
       # store history for histogram visualization
