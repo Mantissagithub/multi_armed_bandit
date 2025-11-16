@@ -6,10 +6,9 @@
 
 # so here we need to store a history of actions and rewards
 # and then use that history to select the action
-# we need to use the beta distribution to sample the action
-# and then update the history with the reward
-# and then use the history to select the action
-# and then update the history with the reward
+# for gaussian rewards, we use normal posterior distribution instead of beta
+# we sample from each arm's posterior (normal distribution with mean = sample mean, variance = 1/n)
+# and then pick the arm with the highest sample (thompson sampling)
 
 import gym
 import gym_bandits
@@ -21,45 +20,33 @@ class ThompsonSamplingAgent:
         # super().__init__()
         self.n_actions = n_actions
         self.history = []
-        self.alpha = np.ones(n_actions)
-        self.beta = np.ones(n_actions)
-        # For normalizing rewards to [0, 1] range for beta distribution
-        self.min_reward = None
-        self.max_reward = None
+        self.sum_rewards = np.zeros(n_actions)
+        self.action_counts = np.zeros(n_actions)
+        self.posterior_std = 1.0
 
     def select_action(self):
-        return np.argmax(np.random.beta(self.alpha, self.beta))
-
-    def normalize_reward(self, reward):
-        """Normalize reward to [0, 1] range for beta distribution."""
-        # Initialize min/max on first reward
-        if self.min_reward is None:
-            self.min_reward = reward
-            self.max_reward = reward
-
-        # Update min/max
-        self.min_reward = min(self.min_reward, reward)
-        self.max_reward = max(self.max_reward, reward)
-
-        # Normalize to [0, 1] with small epsilon to avoid edge cases
-        if self.max_reward == self.min_reward:
-            return 0.5  # Return middle value if all rewards are the same
-        normalized = (reward - self.min_reward) / (self.max_reward - self.min_reward)
-        # Clip to [0, 1] to be safe
-        return np.clip(normalized, 0.0, 1.0)
+        samples = np.zeros(self.n_actions)
+        for a in range(self.n_actions):
+            n = self.action_counts[a]
+            if n == 0:
+                samples[a] = 0.0
+            else:
+                mean = self.sum_rewards[a] / n
+                var = self.posterior_std**2 / n
+                samples[a] = np.random.normal(mean, np.sqrt(var))
+        # Pick arm with highest sample (this balances exploration and exploitation)
+        return np.argmax(samples)
 
     def update_estimates(self, action, reward):
+        # Store history for histogram visualization
         self.history.append((action, reward))
-        normalized_reward = self.normalize_reward(reward)
-        self.alpha[action] += normalized_reward
-        self.beta[action] += 1 - normalized_reward
-        # Ensure alpha and beta stay positive (shouldn't happen with normalization, but safety check)
-        self.alpha[action] = max(self.alpha[action], 0.01)
-        self.beta[action] = max(self.beta[action], 0.01)
+        # Update count and sum for posterior calculation
+        self.action_counts[action] += 1
+        self.sum_rewards[action] += reward
+        # No need for alpha/beta with normal posterior - conjugate update is implicit in select_action
 
 def train_thompson_sampling_agent(env_name='BanditTenArmedGaussian-v0', n_episodes=1000):
     env = gym.make(env_name)
-    # env.seed(42)
     env.reset()
     np.random.seed(42)
     n_actions = env.action_space.n
@@ -70,7 +57,10 @@ def train_thompson_sampling_agent(env_name='BanditTenArmedGaussian-v0', n_episod
     regrets = []
     cumulative_regret = []
 
-    true_means = env.means if hasattr(env, 'means') else None
+    true_means = env.env.means if hasattr(env.env, 'means') else None
+    if true_means is None:
+        # fallback to direct env.means if not nested
+        true_means = env.means if hasattr(env, 'means') else None
     if true_means is None:
         true_means = getattr(env, 'mu', None)
     if true_means is None:
@@ -81,7 +71,20 @@ def train_thompson_sampling_agent(env_name='BanditTenArmedGaussian-v0', n_episod
 
     optimal_reward = np.max(true_means) if true_means is not None else None
 
-    for episode in range(n_episodes):
+    for a in range(n_actions):
+        reward = env.step(a)[1]
+        agent.update_estimates(a, reward)
+        rewards.append(reward)
+        cumulative_avg = np.mean(rewards)
+        cumulative_avg_rewards.append(cumulative_avg)
+        if optimal_reward is not None:
+            regret = optimal_reward - reward
+        else:
+            regret = 0
+        regrets.append(regret)
+        cumulative_regret.append(np.sum(regrets))
+
+    for episode in range(n_actions, n_episodes):
         action = agent.select_action()
         reward = env.step(action)[1]
         agent.update_estimates(action, reward)
