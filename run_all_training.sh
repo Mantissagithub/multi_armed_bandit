@@ -1,6 +1,6 @@
 #!/bin/bash
 
-uv run -W ignore greedy.py
+uv run greedy.py
 uv run epsilon_greedy.py
 uv run decaying_epsilon_greedy.py
 uv run ucb1.py
