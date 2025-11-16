@@ -98,6 +98,18 @@ def train_greedy_agent(env_name='BanditTenArmedGaussian-v0', n_episodes=1000):
     plt.savefig('greedy_agent_results.png')
     # plt.show()
 
+    plt.figure(figsize=(10, 6))
+    time_steps = range(len(cumulative_regret))
+    plt.plot(time_steps, cumulative_regret, linewidth=2, label='Total Regret')
+    plt.xlabel('Time-steps')
+    plt.ylabel('Total Regret')
+    plt.title('Total Regret vs Time-steps - Greedy Agent')
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig('results/greedy_total_regret.png')
+    plt.close()
+
     return agent, cumulative_regret[-1] if cumulative_regret else 0
 
 if __name__ == "__main__":

@@ -5,51 +5,45 @@ import gym_bandits
 import numpy as np
 import matplotlib.pyplot as plt
 
-class GreedyAgent:
+class UCB1Agent:
     def __init__(self, n_actions):
         # super().__init__()
         self.n_actions = n_actions
-        self.q_values = np.zeros(n_actions)
+        # self.q_values = np.zeros(n_actions)
         self.action_counts = np.zeros(n_actions)
+        self.total_rewards = np.zeros(n_actions)
+        self.avg_rewards = np.zeros(n_actions)
+        self.t = 0
 
-    def select_action(self, epsilon):
-        if np.random.rand() < epsilon:
-            return np.random.randint(self.n_actions)
-        else:
-            return np.argmax(self.q_values)
+    def select_action(self):
+        self.t += 1
+        if self.t <= self.n_actions:
+          return self.t - 1
+
+        ucb_values = self.avg_rewards + np.sqrt(2 * np.log(self.t) / self.action_counts)
+        return np.argmax(ucb_values)
 
     def update_estimates(self, action, reward):
         self.action_counts[action] += 1
-        n = self.action_counts[action]
-        self.q_values[action] += (reward - self.q_values[action]) / n
+        self.total_rewards[action] += reward
+        self.avg_rewards[action] = self.total_rewards[action] / self.action_counts[action]
 
-def train_decaying_epsilon_greedy_agent(env_name='BanditTenArmedGaussian-v0', n_episodes=1000, use_fast_decay=False, decay_type='multiplicative'):
+def train_ucb1_agent(env_name='BanditTenArmedGaussian-v0', n_episodes=1000):
     env = gym.make(env_name)
     n_actions = env.action_space.n
-    agent = GreedyAgent(n_actions)
+    agent = UCB1Agent(n_actions)
 
     rewards = []
     cumulative_avg_rewards = []
     regrets = []
     cumulative_regret = []
-    optimal_pulls = []
 
     env.reset()
     np.random.seed(42)
 
-    epsilon_0 = 0.1
-    if use_fast_decay:
-        if decay_type == 'multiplicative':
-            decay_rate = 0.995
-        else:
-            decay_rate = 0.001
-        epsilon = epsilon_0
-    else:
-        epsilon = 0.1
-        decay_rate = 0.01
-
     true_means = env.means if hasattr(env, 'means') else None
     if true_means is None:
+        # try alternative attribute names
         true_means = getattr(env, 'mu', None)
     if true_means is None:
         # if we can't get true means, we'll estimate optimal reward from observed rewards
@@ -58,23 +52,11 @@ def train_decaying_epsilon_greedy_agent(env_name='BanditTenArmedGaussian-v0', n_
         true_means = None
 
     optimal_reward = np.max(true_means) if true_means is not None else None
-    optimal_action = np.argmax(true_means) if true_means is not None else None
 
     for episode in range(n_episodes):
-        if episode > 1:
-            if use_fast_decay:
-                if decay_type == 'multiplicative':
-                    epsilon = epsilon_0 * (decay_rate ** episode)
-                else:
-                    epsilon = epsilon_0 / (1 + decay_rate * episode)
-            else:
-                epsilon = max(0.01, epsilon * (1 - decay_rate))
-        action = agent.select_action(epsilon)
+        action = agent.select_action()
         reward = env.step(action)[1]
         agent.update_estimates(action, reward)
-
-        if optimal_action is not None:
-            optimal_pulls.append(1 if action == optimal_action else 0)
 
         rewards.append(reward)
         cumulative_avg = np.mean(rewards)
@@ -98,7 +80,7 @@ def train_decaying_epsilon_greedy_agent(env_name='BanditTenArmedGaussian-v0', n_
         plt.axhline(y=optimal_reward, color='r', linestyle='--', label='Optimal reward', linewidth=2)
     plt.xlabel('Episode')
     plt.ylabel('Reward')
-    plt.title('Decaying Epsilon-Greedy Agent Performance')
+    plt.title('UCB1 Agent Performance')
     plt.legend()
     plt.grid(True)
 
@@ -111,17 +93,17 @@ def train_decaying_epsilon_greedy_agent(env_name='BanditTenArmedGaussian-v0', n_
     plt.grid(True)
 
     plt.subplot(1, 3, 3)
-    plt.bar(range(n_actions), agent.q_values)
+    plt.bar(range(n_actions), agent.avg_rewards, alpha=0.5)
     plt.xlabel('Action')
-    plt.ylabel('Estimated Q-value')
-    plt.title('Final Q-value Estimates')
+    plt.ylabel('Estimated Avg Reward')
+    plt.title('Final Avg Reward Estimates')
     if true_means is not None:
-        plt.plot(range(n_actions), true_means, 'ro', label='True means', markersize=8)
+        plt.plot(range(n_actions), true_means, 'ro', label='True means', markersize=8, alpha=0.5)
         plt.legend()
     plt.grid(True)
 
     plt.tight_layout()
-    plt.savefig('decaying_epsilon_greedy_agent_results.png')
+    plt.savefig('ucb1_agent_results.png')
     # plt.show()
 
     plt.figure(figsize=(10, 6))
@@ -129,21 +111,17 @@ def train_decaying_epsilon_greedy_agent(env_name='BanditTenArmedGaussian-v0', n_
     plt.plot(time_steps, cumulative_regret, linewidth=2, label='Total Regret')
     plt.xlabel('Time-steps')
     plt.ylabel('Total Regret')
-    plt.title('Total Regret vs Time-steps - Decaying Epsilon-Greedy Agent')
+    plt.title('Total Regret vs Time-steps - UCB1 Agent')
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
-    plt.savefig('results/decaying_epsilon_greedy_total_regret.png')
+    plt.savefig('results/ucb1_total_regret.png')
     plt.close()
-
-    if optimal_pulls and len(optimal_pulls) > 0:
-        final_optimal_pct = np.mean(optimal_pulls[-100:]) * 100 if len(optimal_pulls) >= 100 else np.mean(optimal_pulls) * 100
-        print(f"Final optimal pulls: {final_optimal_pct:.1f}%")
 
     return agent, cumulative_regret[-1] if cumulative_regret else 0
 
 if __name__ == "__main__":
-    trained_agent, final_regret = train_decaying_epsilon_greedy_agent(n_episodes=10000)
-    print(f"Final q_values: {trained_agent.q_values}")
+    trained_agent, final_regret = train_ucb1_agent(n_episodes=10000)
+    print(f"Final avg_rewards: {trained_agent.avg_rewards}")
     print(f"Action counts: {trained_agent.action_counts}")
     print(f"Final cumulative regret: {final_regret:.2f}")
